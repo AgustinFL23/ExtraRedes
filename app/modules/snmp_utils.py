@@ -30,6 +30,22 @@ def snmp_get(ip, oid, creds):
         return str(varBind[1])
     return None
 
+def snmp_set(ip, oid, value, creds):
+    auth_data = get_auth_data(creds)
+    iterator = setCmd(
+        SnmpEngine(),
+        auth_data,
+        UdpTransportTarget((ip, 161), timeout=2, retries=1),
+        ContextData(),
+        ObjectType(ObjectIdentity(oid), OctetString(value))
+    )
+    
+    errorIndication, errorStatus, errorIndex, varBinds = next(iterator)
+    if errorIndication or errorStatus:
+        print(f"SNMP Set Error on {ip}: {errorIndication or errorStatus}")
+        return False
+    return True
+
 def get_router_info(ip, creds):
     info = {}
     info['hostname'] = snmp_get(ip, '1.3.6.1.2.1.1.5.0', creds)

@@ -41,6 +41,7 @@ def create_app():
         
         # Guardar credenciales en sesión para usarlas luego en monitoreo de tráfico dinámico sin hardcodearlas
         session['snmp_creds'] = snmp_creds
+        session['ssh_creds'] = ssh_creds
         
         topology = discover_network(seed_ip, ssh_creds)
         
@@ -115,16 +116,84 @@ def create_app():
             return render_template('index.html', alert_error=msg)
 
     @app.route('/routers')
-    def view_routers():
+    def view_routers_ui():
         routers = Router.query.all()
-        return jsonify([{'id': r.id, 'hostname': r.hostname, 'ip': r.ip_address, 'hardware': r.hardware} for r in routers])
+        return render_template('routers.html', routers=routers)
         
     @app.route('/routers/<int:router_id>/interfaces')
-    def view_interfaces(router_id):
+    def view_interfaces_ui(router_id):
+        router = Router.query.get_or_404(router_id)
         interfaces = Interface.query.filter_by(router_id=router_id).all()
-        return jsonify([{'name': i.name, 'status': i.status, 'ip': i.ip_address} for i in interfaces])
+        return render_template('interfaces.html', router=router, interfaces=interfaces)
 
-    # Endpoints de Monitoreo de Tráfico (Incremento 6)
+    # --- INCREMENTO 7: Cambio de Datos ---
+    @app.route('/router/<int:router_id>/hostname', methods=['POST'])
+    def change_hostname(router_id):
+        from modules.config_utils import modify_router_netmiko
+        router = Router.query.get_or_404(router_id)
+        new_hostname = request.form.get('hostname')
+        
+        creds = session.get('ssh_creds')
+        if not creds:
+            flash("No hay credenciales SSH en sesión.", "danger")
+            return redirect(url_for('view_routers_ui'))
+            
+        success, msg = modify_router_netmiko(router.ip_address, creds, [f"hostname {new_hostname}"])
+        if success:
+            router.hostname = new_hostname
+            db.session.commit()
+            flash(f"Hostname cambiado a {new_hostname}", "success")
+        else:
+            flash(f"Error cambiando hostname: {msg}", "danger")
+        return redirect(url_for('view_routers_ui'))
+
+    @app.route('/router/<int:router_id>/location', methods=['POST'])
+    def change_location(router_id):
+        from modules.snmp_utils import snmp_set
+        router = Router.query.get_or_404(router_id)
+        new_location = request.form.get('location')
+        
+        creds = session.get('snmp_creds')
+        if not creds:
+            flash("No hay credenciales SNMP en sesión.", "danger")
+            return redirect(url_for('view_routers_ui'))
+            
+        # OID de sysLocation
+        success = snmp_set(router.ip_address, '1.3.6.1.2.1.1.6.0', new_location, creds)
+        if success:
+            router.location = new_location
+            db.session.commit()
+            flash(f"Locación cambiada a {new_location}", "success")
+        else:
+            flash("Error cambiando locación vía SNMP", "danger")
+        return redirect(url_for('view_routers_ui'))
+        
+    @app.route('/interface/<int:interface_id>/action', methods=['POST'])
+    def change_interface_status(interface_id):
+        from modules.config_utils import modify_router_netmiko
+        interface = Interface.query.get_or_404(interface_id)
+        router = Router.query.get(interface.router_id)
+        action = request.form.get('action') # 'shutdown' or 'no_shutdown'
+        
+        creds = session.get('ssh_creds')
+        if not creds:
+            flash("No hay credenciales SSH en sesión.", "danger")
+            return redirect(url_for('view_interfaces_ui', router_id=router.id))
+            
+        cmd = "shutdown" if action == "shutdown" else "no shutdown"
+        commands = [f"interface {interface.name}", cmd]
+        success, msg = modify_router_netmiko(router.ip_address, creds, commands)
+        
+        if success:
+            interface.status = "down" if action == "shutdown" else "up"
+            db.session.commit()
+            flash(f"Interfaz {interface.name} ahora está {interface.status}", "success")
+        else:
+            flash(f"Error cambiando estado de interfaz: {msg}", "danger")
+            
+        return redirect(url_for('view_interfaces_ui', router_id=router.id))
+
+    # --- Endpoints de Monitoreo de Tráfico (Incremento 6) ---
     @app.route('/traffic/<ip>/<if_index>')
     def view_traffic(ip, if_index):
         return render_template('traffic.html', ip=ip, if_index=if_index)
