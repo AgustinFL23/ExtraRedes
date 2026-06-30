@@ -1,1 +1,29 @@
+conf t
+! cambiar nombre por cada router
+hostname R1
 
+ip domain-name multirouter.com
+! usuario ssh admin contraseña admin123
+username admin privilege 15 secret admin123
+enable secret cisco
+
+crypto key generate rsa modulus 2048
+ip ssh version 2
+
+line vty 0 15
+login local
+transport input ssh
+exec-timeout 30 0
+! comunidad SNMPv2 redes2026
+snmp-server community redes2026 RO
+snmp-server contact Agustin
+snmp-server location Laboratorio
+! usuario SNMPv3 snmpadmin contraseña snmpAuth123 priv aes 128 contraseña de privacidad snmpPriv123
+snmp-server group MONITOR v3 priv
+snmp-server user snmpadmin MONITOR v3 auth sha snmpAuth123 priv aes 128 snmpPriv123
+! habilitar traps
+snmp-server enable traps
+snmp-server host [IP_ADDRESS] version 2c redes2025
+
+end
+wr
