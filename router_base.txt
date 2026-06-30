@@ -1,29 +1,87 @@
-conf t
-! cambiar nombre por cada router
-hostname R1
+!===========================================================
+! PLANTILLA DE CONFIGURACIÓN INICIAL - ROUTER CISCO 2691
+!===========================================================
 
+conf t
+
+!-----------------------------------------------------------
+! DATOS DEL ROUTER
+!-----------------------------------------------------------
+hostname R1
 ip domain-name multirouter.com
-! usuario ssh admin contraseña admin123
+
+!-----------------------------------------------------------
+! USUARIOS Y SEGURIDAD
+!-----------------------------------------------------------
 username admin privilege 15 secret admin123
 enable secret cisco
 
-crypto key generate rsa modulus 2048
+!-----------------------------------------------------------
+! CONFIGURACIÓN DE INTERFACES
+! CAMBIA SOLAMENTE LAS DIRECCIONES IP Y MÁSCARAS
+!-----------------------------------------------------------
+
+interface FastEthernet0/0
+ip address <IP_FA0_0> <MASCARA_FA0_0>
+no shutdown
+exit
+
+interface FastEthernet0/1
+ip address <IP_FA0_1> <MASCARA_FA0_1>
+no shutdown
+exit
+
+interface FastEthernet1/0
+ip address <IP_FA1_0> <MASCARA_FA1_0>
+no shutdown
+exit
+
+!-----------------------------------------------------------
+! CONFIGURACIÓN SSH Y RSA
+!-----------------------------------------------------------
+crypto key generate rsa
+2048
+
 ip ssh version 2
 
 line vty 0 15
 login local
 transport input ssh
 exec-timeout 30 0
-! comunidad SNMPv2 redes2026
+exit
+
+!-----------------------------------------------------------
+! CONFIGURACIÓN SNMPv2
+!-----------------------------------------------------------
 snmp-server community redes2026 RO
 snmp-server contact Agustin
 snmp-server location Laboratorio
-! usuario SNMPv3 snmpadmin contraseña snmpAuth123 priv aes 128 contraseña de privacidad snmpPriv123
+
+!-----------------------------------------------------------
+! CONFIGURACIÓN SNMPv3
+!-----------------------------------------------------------
 snmp-server group MONITOR v3 priv
 snmp-server user snmpadmin MONITOR v3 auth sha snmpAuth123 priv aes 128 snmpPriv123
-! habilitar traps
+
+!-----------------------------------------------------------
+! TRAPS SNMP
+!-----------------------------------------------------------
 snmp-server enable traps
-snmp-server host [IP_ADDRESS] version 2c redes2025
+snmp-server host 148.204.56.10 version 2c redes2026
 
 end
 wr
+
+
+!===========================================================
+! EJEMPLO DE USO
+!===========================================================
+! interface FastEthernet0/0
+!  ip address 10.0.0.1 255.255.255.0
+!
+! interface FastEthernet0/1
+!  ip address 10.0.1.1 255.255.255.0
+!
+! interface FastEthernet1/0
+!  ip address 192.168.1.1 255.255.255.0
+!===========================================================
