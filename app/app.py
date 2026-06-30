@@ -49,6 +49,12 @@ def create_app():
             static_dir = os.path.join(app.root_path, 'static')
             draw_topology(topology, static_dir)
             
+            # ¡CLAVE PARA CAMBIOS DE TOPOLOGÍA!
+            # Limpiamos la BD para que NUNCA sea la fuente de la verdad
+            # y refleje siempre la red VIVA recién descubierta.
+            Router.query.delete()
+            db.session.commit()
+            
             for r_node in topology['routers']:
                 ip = r_node['ip']
                 snmp_info = get_router_info(ip, snmp_creds) or {}
