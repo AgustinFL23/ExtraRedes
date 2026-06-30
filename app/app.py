@@ -1,5 +1,5 @@
 import os
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session
 from models import db, Router, Interface
 
 def create_app():
@@ -24,6 +24,7 @@ def create_app():
     def discover():
         from modules.discovery import discover_network
         from modules.snmp_utils import get_router_info
+        from modules.graph_utils import draw_topology
         
         seed_ip = request.form.get('seed_ip')
         ssh_creds = {
@@ -38,21 +39,26 @@ def create_app():
             'v3_priv': request.form.get('v3_priv'),
         }
         
-        # Descubrimiento recursivo por CDP usando Netmiko en R1
+        # Guardar credenciales en sesión para usarlas luego en monitoreo de tráfico dinámico sin hardcodearlas
+        session['snmp_creds'] = snmp_creds
+        
         topology = discover_network(seed_ip, ssh_creds)
         
-        if topology and len(topology['routers']) > 0:
+        if topology and len(topology.get('routers', [])) > 0:
+            # Dibujar y guardar la topología en static/
+            static_dir = os.path.join(app.root_path, 'static')
+            draw_topology(topology, static_dir)
+            
             for r_node in topology['routers']:
                 ip = r_node['ip']
-                # Intentamos obtener info ampliada por SNMP (fallará para R2/R3 si no hay enrutamiento aún)
                 snmp_info = get_router_info(ip, snmp_creds) or {}
                 
                 existing = Router.query.filter_by(ip_address=ip).first()
                 if not existing:
                     new_r = Router(
-                        hostname=snmp_info.get('hostname') or r_node['hostname'],
+                        hostname=snmp_info.get('hostname') or r_node.get('hostname'),
                         ip_address=ip,
-                        hardware=snmp_info.get('hardware') or r_node['hardware'],
+                        hardware=snmp_info.get('hardware') or r_node.get('hardware'),
                         os_version=snmp_info.get('os_version', 'Unknown'),
                         uptime=snmp_info.get('uptime', '0'),
                         location=snmp_info.get('location', ''),
@@ -60,16 +66,19 @@ def create_app():
                     )
                     db.session.add(new_r)
                 else:
-                    # Actualizar datos si el SNMP ya funciona
                     if snmp_info:
                         existing.uptime = snmp_info.get('uptime', existing.uptime)
                         existing.os_version = snmp_info.get('os_version', existing.os_version)
             
             db.session.commit()
-            return render_template('index.html', alert_success=f"Topología descubierta: {len(topology['routers'])} nodos encontrados.")
+            return redirect(url_for('view_topology'))
         else:
             return render_template('index.html', alert_error="Fallo en el descubrimiento CDP en la IP Semilla.")
             
+    @app.route('/topology')
+    def view_topology():
+        return render_template('topology.html')
+
     @app.route('/routing', methods=['POST'])
     def configure_routing_route():
         from modules.routing import configure_routing_all
@@ -86,7 +95,6 @@ def create_app():
         topology = None
         
         if not routers:
-            # Descubrimiento al vuelo si no se ha descubierto antes
             topology = discover_network(seed_ip, ssh_creds)
             if not topology or not topology.get('routers'):
                 return render_template('index.html', alert_error="Fallo al descubrir la red automáticamente antes de enrutar.")
@@ -109,6 +117,23 @@ def create_app():
     def view_interfaces(router_id):
         interfaces = Interface.query.filter_by(router_id=router_id).all()
         return jsonify([{'name': i.name, 'status': i.status, 'ip': i.ip_address} for i in interfaces])
+
+    # Endpoints de Monitoreo de Tráfico (Incremento 6)
+    @app.route('/traffic/<ip>/<if_index>')
+    def view_traffic(ip, if_index):
+        return render_template('traffic.html', ip=ip, if_index=if_index)
+
+    @app.route('/api/traffic/<ip>/<if_index>')
+    def api_traffic(ip, if_index):
+        from modules.traffic_utils import get_interface_traffic
+        
+        # Recuperar credenciales de la sesión (sin hardcodearlas)
+        creds = session.get('snmp_creds')
+        if not creds:
+            return jsonify({"error": "No hay credenciales SNMP en sesión. Realice el descubrimiento primero."}), 403
+            
+        data = get_interface_traffic(ip, if_index, creds)
+        return jsonify(data)
 
     return app
 

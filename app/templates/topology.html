@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card mb-4 border-primary">
+            <div class="card-header d-flex justify-content-between align-items-center bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Topología de Red Descubierta</h5>
+                <button type="button" class="btn btn-sm btn-light" onclick="location.reload()">
+                    <i class="bi bi-arrow-clockwise"></i> Refrescar Imagen
+                </button>
+            </div>
+            <!-- Fondo blanco para que la imagen PNG resalte bien -->
+            <div class="card-body text-center bg-white rounded-bottom">
+                <img src="{{ url_for('static', filename='topology.png') }}?t={{ range(1, 100000) | random }}" 
+                     alt="Topología de Red" class="img-fluid p-4" style="max-height: 600px; min-height: 300px;">
+                <p class="text-muted mt-3 mb-0 small">El mapa se dibuja automáticamente durante el Descubrimiento de Red (Motor CDP) usando PyGraphviz.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
