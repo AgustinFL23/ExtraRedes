@@ -4,8 +4,10 @@
 <div class="row mb-3">
     <div class="col-12">
         <div class="d-flex justify-content-between align-items-center">
-            <h4><i class="bi bi-ethernet"></i> Interfaces del Router</h4>
-            <a href="/routers" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Volver a Routers</a>
+            <h4><i class="bi bi-ethernet"></i> Interfaces de <strong>{{ router.hostname }}</strong></h4>
+            <div>
+                <a href="/routers" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Volver</a>
+            </div>
         </div>
     </div>
 </div>
@@ -13,7 +15,7 @@
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
     {% for category, message in messages %}
-      <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show" role="alert">
+      <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show">
         {{ message }}
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
       </div>
@@ -21,58 +23,95 @@
   {% endif %}
 {% endwith %}
 
-<div class="row">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-body p-0">
-                <table class="table table-hover table-striped mb-0 text-center align-middle">
-                    <thead class="table-dark">
-                        <tr>
-                            <th>Nombre</th>
-                            <th>IP</th>
-                            <th>Estado CDP</th>
-                            <th>Tráfico</th>
-                            <th>Acción Administrativa</th>
-                        </tr>
-                    </thead>
+<!-- Lista de interfaces como botones clicables -->
+<div class="row mb-4">
+    {% for interface in interfaces %}
+    <div class="col-md-4 mb-3">
+        <button class="btn w-100 text-start interface-btn 
+            {% if interface.status == 'up' %}btn-outline-success{% else %}btn-outline-danger{% endif %}"
+            onclick="showInterfaceDetail({{ loop.index0 }})">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="bi bi-ethernet"></i>
+                    <strong class="ms-2">{{ interface.name }}</strong>
+                </div>
+                <span class="badge {% if interface.status == 'up' %}bg-success{% else %}bg-danger{% endif %}">
+                    {{ interface.status | upper }}
+                </span>
+            </div>
+            <div class="text-muted small mt-1">{{ interface.ip_address or 'Sin IP asignada' }}</div>
+        </button>
+    </div>
+    {% else %}
+    <div class="col-12 text-center text-muted">
+        <p>No se encontraron interfaces. Realiza el descubrimiento de red primero.</p>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Panel de detalle de interfaz (oculto al inicio) -->
+<div id="interfaceDetailPanel" class="card mb-4" style="display:none;">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0" id="detailTitle">Detalle de Interfaz</h5>
+        <button class="btn btn-sm btn-outline-light" onclick="document.getElementById('interfaceDetailPanel').style.display='none'">
+            <i class="bi bi-x-lg"></i>
+        </button>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <table class="table table-sm table-dark">
                     <tbody>
-                        {% for interface in interfaces %}
-                        <tr>
-                            <td><strong>{{ interface.name }}</strong></td>
-                            <td>{{ interface.ip_address }}</td>
-                            <td>
-                                {% if interface.status == 'up' %}
-                                    <span class="badge bg-success">UP</span>
-                                {% else %}
-                                    <span class="badge bg-danger">DOWN</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                <!-- Asumiendo que podemos extraer el índice alfanumérico o mandar a la vista de tráfico -->
-                                <a href="/traffic/{{ router.ip_address }}/{{ loop.index }}" class="btn btn-sm btn-outline-info">
-                                    <i class="bi bi-graph-up"></i>
-                                </a>
-                            </td>
-                            <td>
-                                <form action="/interface/{{ interface.id }}/action" method="POST" class="d-inline">
-                                    <input type="hidden" name="action" value="no_shutdown">
-                                    <button type="submit" class="btn btn-sm btn-success" title="Encender"><i class="bi bi-play-fill"></i> No Shut</button>
-                                </form>
-                                <form action="/interface/{{ interface.id }}/action" method="POST" class="d-inline">
-                                    <input type="hidden" name="action" value="shutdown">
-                                    <button type="submit" class="btn btn-sm btn-danger" title="Apagar"><i class="bi bi-stop-fill"></i> Shut</button>
-                                </form>
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="5" class="text-muted">No se encontraron interfaces.</td>
-                        </tr>
-                        {% endfor %}
+                        <tr><th>Nombre</th><td id="d-name">—</td></tr>
+                        <tr><th>IP Address</th><td id="d-ip">—</td></tr>
+                        <tr><th>Estado</th><td id="d-status">—</td></tr>
+                        <tr><th>Índice SNMP</th><td id="d-index">—</td></tr>
                     </tbody>
                 </table>
+            </div>
+            <div class="col-md-6 d-flex flex-column justify-content-center gap-2">
+                <!-- Tráfico -->
+                <a id="btnTraffic" href="#" class="btn btn-info w-100">
+                    <i class="bi bi-graph-up"></i> Ver Gráficas de Tráfico
+                </a>
+                <!-- Shutdown / No Shut -->
+                <form id="formShut" action="#" method="POST" class="d-inline">
+                    <input type="hidden" name="action" value="shutdown">
+                    <button type="submit" class="btn btn-danger w-100"><i class="bi bi-stop-fill"></i> Shutdown</button>
+                </form>
+                <form id="formNoShut" action="#" method="POST" class="d-inline">
+                    <input type="hidden" name="action" value="no_shutdown">
+                    <button type="submit" class="btn btn-success w-100"><i class="bi bi-play-fill"></i> No Shutdown</button>
+                </form>
             </div>
         </div>
     </div>
 </div>
+
+<!-- Datos en JSON para JS -->
+<script>
+    const interfaces = {{ interfaces_json | safe }};
+    const router_ip = "{{ router.ip_address }}";
+    
+    function showInterfaceDetail(idx) {
+        const intf = interfaces[idx];
+        document.getElementById('detailTitle').innerText = 'Detalle: ' + intf.name;
+        document.getElementById('d-name').innerText = intf.name;
+        document.getElementById('d-ip').innerText = intf.ip_address || 'Sin IP';
+        document.getElementById('d-status').innerHTML = intf.status === 'up'
+            ? '<span class="badge bg-success">UP</span>'
+            : '<span class="badge bg-danger">DOWN</span>';
+        document.getElementById('d-index').innerText = intf.snmp_index;
+        
+        // Actualizar href del botón de tráfico
+        document.getElementById('btnTraffic').href = `/traffic/${router_ip}/${intf.snmp_index}`;
+        
+        // Actualizar actions de los formularios
+        document.getElementById('formShut').action = `/interface/${intf.id}/action`;
+        document.getElementById('formNoShut').action = `/interface/${intf.id}/action`;
+        
+        document.getElementById('interfaceDetailPanel').style.display = 'block';
+        document.getElementById('interfaceDetailPanel').scrollIntoView({behavior: 'smooth'});
+    }
+</script>
 {% endblock %}

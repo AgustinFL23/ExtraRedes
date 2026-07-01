@@ -60,32 +60,22 @@ def create_app():
                 ip = r_node['ip']
                 snmp_info = get_router_info(ip, snmp_creds) or {}
                 
-                new_r = Router(
-                    hostname=snmp_info.get('hostname') or r_node.get('hostname'),
-                    ip_address=ip,
-                    hardware=snmp_info.get('hardware') or r_node.get('hardware'),
-                    os_version=snmp_info.get('os_version', 'Unknown'),
-                    uptime=snmp_info.get('uptime', '0'),
-                    location=snmp_info.get('location', ''),
-                    contact=snmp_info.get('contact', '')
-                )
-                db.session.add(new_r)
-                db.session.flush()  # Obtener el ID asignado antes de agregar interfaces
-                
-                # Guardar interfaces con su índice SNMP (posición en la lista + 1)
-                for idx, intf in enumerate(r_node.get('interfaces', []), start=1):
-                    new_intf = Interface(
-                        router_id=new_r.id,
-                        name=intf['name'],
-                        ip_address=intf.get('ip_address'),
-                        status=intf.get('status', 'unknown'),
-                        connected_to=None,
-                        mask=None
+                existing = Router.query.filter_by(ip_address=ip).first()
+                if not existing:
+                    new_r = Router(
+                        hostname=snmp_info.get('hostname') or r_node.get('hostname'),
+                        ip_address=ip,
+                        hardware=snmp_info.get('hardware') or r_node.get('hardware'),
+                        os_version=snmp_info.get('os_version', 'Unknown'),
+                        uptime=snmp_info.get('uptime', '0'),
+                        location=snmp_info.get('location', ''),
+                        contact=snmp_info.get('contact', '')
                     )
-                    # Guardamos el índice SNMP en el campo mask temporalmente para reutilizarlo
-                    # (en un modelo más completo se añadiría un campo snmp_index)
-                    new_intf.mask = str(idx)
-                    db.session.add(new_intf)
+                    db.session.add(new_r)
+                else:
+                    if snmp_info:
+                        existing.uptime = snmp_info.get('uptime', existing.uptime)
+                        existing.os_version = snmp_info.get('os_version', existing.os_version)
             
             db.session.commit()
             return redirect(url_for('view_topology'))
@@ -98,28 +88,23 @@ def create_app():
 
     @app.route('/routing', methods=['POST'])
     def configure_routing_route():
-        from modules.routing import configure_routing_all
-        from modules.discovery import discover_network
-        
+        from modules.routing import configure_routing_recursive
+
         protocol = request.form.get('protocol')
         seed_ip = request.form.get('seed_ip')
         ssh_creds = {
             'user': request.form.get('ssh_user'),
             'password': request.form.get('ssh_pass')
         }
-        
-        routers = Router.query.all()
-        topology = None
-        
-        if not routers:
-            topology = discover_network(seed_ip, ssh_creds)
-            if not topology or not topology.get('routers'):
-                return render_template('index.html', alert_error="Fallo al descubrir la red automáticamente antes de enrutar.")
-        else:
-            topology = {'routers': [{'hostname': r.hostname, 'ip': r.ip_address} for r in routers]}
-            
-        success, msg = configure_routing_all(protocol, seed_ip, ssh_creds, topology)
-        
+
+        # Ya no depende de la BD ni de un discover previo: la topología
+        # se recorre en vivo vía CDP en cada salto SSH anidado, por eso
+        # esto puede ejecutarse ANTES de "Explorar la red" (como pide
+        # el examen: enrutamiento primero, descubrimiento después).
+        session['ssh_creds'] = ssh_creds
+
+        success, msg = configure_routing_recursive(protocol, seed_ip, ssh_creds)
+
         if success:
             return render_template('index.html', alert_success=msg)
         else:
@@ -132,20 +117,9 @@ def create_app():
         
     @app.route('/routers/<int:router_id>/interfaces')
     def view_interfaces_ui(router_id):
-        import json
         router = Router.query.get_or_404(router_id)
         interfaces = Interface.query.filter_by(router_id=router_id).all()
-        
-        # Serializar para que el JS del template pueda usarlas directamente
-        interfaces_json = json.dumps([{
-            'id': i.id,
-            'name': i.name,
-            'ip_address': i.ip_address,
-            'status': i.status,
-            'snmp_index': i.mask  # Reutilizamos mask como snmp_index
-        } for i in interfaces])
-        
-        return render_template('interfaces.html', router=router, interfaces=interfaces, interfaces_json=interfaces_json)
+        return render_template('interfaces.html', router=router, interfaces=interfaces)
 
     # --- INCREMENTO 7: Cambio de Datos ---
     @app.route('/router/<int:router_id>/hostname', methods=['POST'])
