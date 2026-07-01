@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col-12 d-flex justify-content-between align-items-center">
+        <h4><i class="bi bi-bell-fill text-warning"></i> Historial de Alertas</h4>
+        <div class="d-flex gap-2 align-items-center">
+            <span class="badge bg-secondary" id="totalBadge">{{ alerts | length }} alertas</span>
+            <button class="btn btn-sm btn-outline-danger" onclick="clearAlerts()">
+                <i class="bi bi-trash"></i> Limpiar historial
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Filtros de severidad -->
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="btn-group" role="group">
+            <button onclick="filterAlerts('all')" class="btn btn-sm btn-outline-light active" id="f-all">Todas</button>
+            <button onclick="filterAlerts('critical')" class="btn btn-sm btn-outline-danger" id="f-critical">
+                <i class="bi bi-exclamation-triangle-fill"></i> Críticas
+            </button>
+            <button onclick="filterAlerts('warning')" class="btn btn-sm btn-outline-warning" id="f-warning">
+                <i class="bi bi-exclamation-circle-fill"></i> Advertencias
+            </button>
+            <button onclick="filterAlerts('info')" class="btn btn-sm btn-outline-info" id="f-info">
+                <i class="bi bi-info-circle-fill"></i> Informativas
+            </button>
+        </div>
+        <span class="ms-3 text-muted small">
+            <i class="bi bi-arrow-repeat"></i> Actualización automática cada 15s
+        </span>
+    </div>
+</div>
+
+<!-- Tabla de alertas -->
+<div class="card">
+    <div class="card-body p-0">
+        <table class="table table-hover table-dark mb-0" id="alertsTable">
+            <thead class="table-dark border-bottom border-secondary">
+                <tr>
+                    <th style="width:180px">Timestamp</th>
+                    <th style="width:150px">Tipo de Evento</th>
+                    <th>Descripción</th>
+                    <th style="width:110px" class="text-center">Severidad</th>
+                </tr>
+            </thead>
+            <tbody id="alertsBody">
+                {% for alert in alerts %}
+                <tr class="alert-row" data-severity="{{ alert.severity }}">
+                    <td class="text-muted small align-middle">
+                        {{ alert.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
+                    </td>
+                    <td class="align-middle">
+                        <code class="text-info">{{ alert.event_type }}</code>
+                    </td>
+                    <td class="align-middle">{{ alert.description }}</td>
+                    <td class="text-center align-middle">
+                        {% if alert.severity == 'critical' %}
+                            <span class="badge bg-danger"><i class="bi bi-exclamation-triangle-fill"></i> CRÍTICO</span>
+                        {% elif alert.severity == 'warning' %}
+                            <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-circle-fill"></i> ADVERTENCIA</span>
+                        {% else %}
+                            <span class="badge bg-info text-dark"><i class="bi bi-info-circle-fill"></i> INFO</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr id="emptyRow">
+                    <td colspan="4" class="text-center text-muted py-5">
+                        <i class="bi bi-shield-check fs-2 d-block mb-2"></i>
+                        No hay alertas registradas. El sistema está monitoreando...
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    let currentFilter = 'all';
+    
+    // Filtrar alertas por severidad (lado cliente)
+    function filterAlerts(severity) {
+        currentFilter = severity;
+        document.querySelectorAll('.alert-row').forEach(row => {
+            if (severity === 'all' || row.dataset.severity === severity) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+        
+        // Actualizar estilo de botones
+        ['all', 'critical', 'warning', 'info'].forEach(s => {
+            document.getElementById('f-' + s).classList.toggle('active', s === severity);
+        });
+    }
+    
+    // Limpiar historial (elimina todas las alertas via API)
+    function clearAlerts() {
+        if (!confirm('¿Eliminar todo el historial de alertas?')) return;
+        fetch('/api/alerts/clear', { method: 'POST' })
+            .then(r => r.json())
+            .then(() => location.reload());
+    }
+    
+    // Auto-refresh: cada 15 segundos consulta si hay nuevas alertas
+    // y las prepende a la tabla sin recargar la página completa
+    function fetchNewAlerts() {
+        const firstTs = document.querySelector('.alert-row td.text-muted');
+        const sinceParam = firstTs ? '' : '';  // En la versión completa se filtraría por timestamp
+        
+        fetch('/api/alerts')
+            .then(r => r.json())
+            .then(data => {
+                if (!data.alerts || data.alerts.length === 0) return;
+                
+                const tbody = document.getElementById('alertsBody');
+                const empty = document.getElementById('emptyRow');
+                if (empty) empty.remove();
+                
+                // Reconstruir la tabla con los datos más recientes
+                const current_count = document.querySelectorAll('.alert-row').length;
+                if (data.alerts.length === current_count) return;  // Sin cambios
+                
+                tbody.innerHTML = '';
+                data.alerts.forEach(a => {
+                    const badgeMap = {
+                        critical: '<span class="badge bg-danger"><i class="bi bi-exclamation-triangle-fill"></i> CRÍTICO</span>',
+                        warning:  '<span class="badge bg-warning text-dark"><i class="bi bi-exclamation-circle-fill"></i> ADVERTENCIA</span>',
+                        info:     '<span class="badge bg-info text-dark"><i class="bi bi-info-circle-fill"></i> INFO</span>'
+                    };
+                    const row = `
+                        <tr class="alert-row" data-severity="${a.severity}">
+                            <td class="text-muted small align-middle">${a.timestamp}</td>
+                            <td class="align-middle"><code class="text-info">${a.event_type}</code></td>
+                            <td class="align-middle">${a.description}</td>
+                            <td class="text-center align-middle">${badgeMap[a.severity] || badgeMap['info']}</td>
+                        </tr>`;
+                    tbody.insertAdjacentHTML('beforeend', row);
+                });
+                
+                document.getElementById('totalBadge').innerText = data.alerts.length + ' alertas';
+                filterAlerts(currentFilter);  // Re-aplicar filtro activo
+            })
+            .catch(e => console.warn('Error actualizando alertas:', e));
+    }
+    
+    // Iniciar polling cada 15 segundos
+    setInterval(fetchNewAlerts, 15000);
+</script>
+{% endblock %}
