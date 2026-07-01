@@ -1,4 +1,9 @@
-from pysnmp.hlapi import *
+from pysnmp.hlapi import (
+    SnmpEngine, CommunityData, UsmUserData, UdpTransportTarget, ContextData,
+    ObjectType, ObjectIdentity, OctetString,
+    getCmd, setCmd,
+    usmHMACSHAAuthProtocol, usmDESPrivProtocol
+)
 
 def get_auth_data(creds):
     if creds.get('snmp_version') == '2c':
@@ -9,7 +14,7 @@ def get_auth_data(creds):
             authKey=creds.get('v3_auth'),
             privKey=creds.get('v3_priv'),
             authProtocol=usmHMACSHAAuthProtocol,
-            privProtocol=usmAesCfb128Protocol
+            privProtocol=usmDESPrivProtocol
         )
 
 def snmp_get(ip, oid, creds):
