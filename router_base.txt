@@ -61,7 +61,7 @@ snmp-server location Laboratorio
 ! CONFIGURACIÓN SNMPv3
 !-----------------------------------------------------------
 snmp-server group MONITOR v3 priv
-snmp-server user snmpadmin MONITOR v3 auth sha snmpAuth123 priv des snmpPriv123
+snmp-server user snmpadmin MONITOR v3 auth sha snmpAuth123 priv aes 128 snmpPriv123
 
 !-----------------------------------------------------------
 ! TRAPS SNMP
