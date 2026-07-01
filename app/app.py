@@ -1,6 +1,10 @@
 import os
+import threading
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session
-from models import db, Router, Interface
+from models import db, Router, Interface, Alert
+
+# Flag para asegurarnos de iniciar los hilos de alertas solo una vez
+_monitor_started = False
 
 def create_app():
     app = Flask(__name__)
@@ -10,11 +14,21 @@ def create_app():
     db_path = os.path.join(basedir, '..', 'db', 'network_monitor.db')
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    # Estas claves se llenan cuando el usuario hace el Descubrimiento
+    app.config['SNMP_CREDS'] = None
+    app.config['SSH_CREDS'] = None
     
     db.init_app(app)
     
     with app.app_context():
         db.create_all()
+    
+    # Iniciar hilos de monitoreo en segundo plano (solo una vez)
+    global _monitor_started
+    if not _monitor_started:
+        from modules.alerts_utils import start_monitor
+        start_monitor(app)
+        _monitor_started = True
         
     @app.route('/')
     def index():
@@ -231,8 +245,31 @@ def create_app():
         data = get_interface_traffic(ip, if_index, creds)
         return jsonify(data)
 
+    # --- INCREMENTO 8: Alertas ---
+    @app.route('/alerts')
+    def view_alerts():
+        alerts = Alert.query.order_by(Alert.timestamp.desc()).limit(200).all()
+        return render_template('alerts.html', alerts=alerts)
+    
+    @app.route('/api/alerts')
+    def api_alerts():
+        alerts = Alert.query.order_by(Alert.timestamp.desc()).limit(200).all()
+        return jsonify({'alerts': [{
+            'id': a.id,
+            'timestamp': a.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+            'event_type': a.event_type,
+            'description': a.description,
+            'severity': a.severity
+        } for a in alerts]})
+    
+    @app.route('/api/alerts/clear', methods=['POST'])
+    def clear_alerts():
+        Alert.query.delete()
+        db.session.commit()
+        return jsonify({'status': 'ok', 'message': 'Historial de alertas eliminado.'})
+
     return app
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
